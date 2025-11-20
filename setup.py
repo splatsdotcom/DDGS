@@ -11,8 +11,8 @@ from torch.utils.cpp_extension import (
 # ------------------------------------------- #
 
 LIBRARY_NAME = "mgs_diff_renderer"
-LIBRARY_DIR = os.path.join(os.path.abspath(os.path.dirname(__file__)), LIBRARY_NAME)
-CSRC_DIR = os.path.join(os.path.abspath(os.path.dirname(__file__)), "csrc")
+CSRC_DIR = "csrc"
+CSRC_DIR_ABSOLUTE = os.path.join(os.path.abspath(os.path.dirname(__file__)), "csrc")
 
 if torch.__version__ >= "2.6.0": # TODO: what is this ?
 	limitedAPI = True
@@ -41,12 +41,12 @@ def get_extension():
 		glob.glob(os.path.join(srcDir, "*.cu"))
 	))
 	srcs.append(
-		os.path.join(LIBRARY_DIR, "ext.cpp")
+		os.path.join(CSRC_DIR, "ext.cpp")
 	)
 
 	includeDirs = [
-		os.path.join(CSRC_DIR, "include"),
-		os.path.join(CSRC_DIR, "external")
+		os.path.join(CSRC_DIR_ABSOLUTE, "include"),
+		os.path.join(CSRC_DIR_ABSOLUTE, "external")
 	]
 
 	return CUDAExtension(
