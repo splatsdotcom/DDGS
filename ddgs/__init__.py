@@ -38,13 +38,13 @@ def _perspective(fovY, aspect, zNear, zFar):
 	
 # ------------------------------------------- #
 
-# just a wrapper for torch.classes.mgs_diff_renderer.Settings
+# just a wrapper for torch.classes.ddgs.Settings
 class Settings:	
 	def __init__(self, width: int, height: int, 
 	             view: torch.Tensor, proj: torch.Tensor, focalX: float, focalY: float,
 				 debug: bool = False):
 
-		self.cSettings = torch.classes.mgs_diff_renderer.Settings(
+		self.cSettings = torch.classes.ddgs.Settings(
 			width,
 			height,
 			view,
@@ -96,7 +96,7 @@ class RenderFunction(torch.autograd.Function):
 	def forward(ctx, settings: Settings,
 	            means: torch.Tensor, scales: torch.Tensor, rotations: torch.Tensor, opacities: torch.Tensor, harmonics: torch.Tensor) -> torch.Tensor:
 		
-		img, numRendered, geomBufs, binningBufs, imageBufs = torch.ops.mgs_diff_renderer.forward(
+		img, numRendered, geomBufs, binningBufs, imageBufs = torch.ops.ddgs.forward(
 			settings.cSettings, means, scales, rotations, opacities, harmonics
 		)
 
@@ -113,7 +113,7 @@ class RenderFunction(torch.autograd.Function):
 	def backward(ctx, grad_output):
 		means, scales, rotations, opacities, harmonics, geomBufs, binningBufs, imageBufs = ctx.saved_tensors
 
-		dMean, dScales, dRotations, dOpacities, dHarmonics = torch.ops.mgs_diff_renderer.backward(
+		dMean, dScales, dRotations, dOpacities, dHarmonics = torch.ops.ddgs.backward(
 			ctx.settings.cSettings, grad_output,
 			means, scales, rotations, opacities, harmonics,
 			ctx.numRendered, geomBufs, binningBufs, imageBufs

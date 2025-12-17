@@ -6,9 +6,9 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mgs_diff_renderer"
+name = "ddgs-py"
 version = "0.0.1"
-description = "Differentiable Renderer for Moving Gaussian Splats (mgs)"
+description = "Differentiable Renderer for Dynamic Gaussian Splats (dgs)"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
@@ -27,6 +27,6 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/True3DLabs/MGS-Diff-Renderer"
-Repository = "https://github.com/True3DLabs/MGS-Diff-Renderer"
-Issues = "https://github.com/True3DLabs/MGS-Diff-Renderer/issues"
+Homepage = "https://github.com/splatsdotcom/DDGS"
+Repository = "https://github.com/splatsdotcom/DDGS"
+Issues = "https://github.com/splatsdotcom/DDGS/issues"

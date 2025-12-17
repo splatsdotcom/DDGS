@@ -10,7 +10,7 @@ from torch.utils.cpp_extension import (
 
 # ------------------------------------------- #
 
-LIBRARY_NAME = "mgs_diff_renderer"
+LIBRARY_NAME = "ddgs"
 CSRC_DIR = "csrc"
 CSRC_DIR_ABSOLUTE = os.path.join(os.path.abspath(os.path.dirname(__file__)), "csrc")
 

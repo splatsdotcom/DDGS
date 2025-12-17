@@ -1,26 +1,26 @@
-/* mgs_dr_buffers.h
+/* ddgs_buffers.h
  *
  * contains declarations for the temp buffers 
  * used in the differentiable rendering process
  */
 
-#ifndef MGS_DR_BUFFERS_H
-#define MGS_DR_BUFFERS_H
+#ifndef DDGS_BUFFERS_H
+#define DDGS_BUFFERS_H
 
 #include <math.h>
 #include <stdint.h>
-#include "mgs_dr_global.h"
+#include "ddgs_global.h"
 
 //-------------------------------------------//
 
-#define MGS_DR_L1_CACHE_ALIGNMENT 128
+#define DDGS_L1_CACHE_ALIGNMENT 128
 
 //-------------------------------------------//
 
-class MGSDRrenderBuffers
+class DDGSrenderBuffers
 {
 public:
-	MGSDRrenderBuffers(uint8_t* mem, uint32_t count);
+	DDGSrenderBuffers(uint8_t* mem, uint32_t count);
 
 	template<typename T>
 	static uint64_t required_mem(uint32_t count)
@@ -37,7 +37,7 @@ protected:
 	template<typename T>
 	T* bump()
 	{
-		uint64_t alignment = std::max((uint64_t)MGS_DR_L1_CACHE_ALIGNMENT, (uint64_t)sizeof(T));
+		uint64_t alignment = std::max((uint64_t)DDGS_L1_CACHE_ALIGNMENT, (uint64_t)sizeof(T));
 		uint64_t offset = (reinterpret_cast<uintptr_t>(m_mem) + alignment - 1) & ~(alignment - 1);
 		
 		T* ptr = reinterpret_cast<T*>(offset);
@@ -49,7 +49,7 @@ protected:
 	template<typename T>
 	T* bump(uint64_t size)
 	{
-		uint64_t alignment = std::max((uint64_t)MGS_DR_L1_CACHE_ALIGNMENT, (uint64_t)sizeof(T));
+		uint64_t alignment = std::max((uint64_t)DDGS_L1_CACHE_ALIGNMENT, (uint64_t)sizeof(T));
 		uint64_t offset = (reinterpret_cast<uintptr_t>(m_mem) + alignment - 1) & ~(alignment - 1);
 		
 		T* ptr = reinterpret_cast<T*>(offset);
@@ -59,28 +59,28 @@ protected:
 	}
 };
 
-struct MGSDRgeomBuffers : public MGSDRrenderBuffers
+struct DDGSgeomBuffers : public DDGSrenderBuffers
 {
 public:
-	MGSDRgeomBuffers(uint8_t* mem, uint32_t count);
+	DDGSgeomBuffers(uint8_t* mem, uint32_t count);
 
-	QMvec2*     __restrict__ pixCenters;
-	float*      __restrict__ pixRadii;
-	float*      __restrict__ depths;
-	uint32_t*   __restrict__ tilesTouched;
-	uint32_t*   __restrict__ tilesTouchedScan;
-	MGSDRcov3D* __restrict__ covs;
-	QMvec4*     __restrict__ conicOpacity;
-	QMvec3*     __restrict__ color;
+	QMvec2*    __restrict__ pixCenters;
+	float*     __restrict__ pixRadii;
+	float*     __restrict__ depths;
+	uint32_t*  __restrict__ tilesTouched;
+	uint32_t*  __restrict__ tilesTouchedScan;
+	DDGScov3D* __restrict__ covs;
+	QMvec4*    __restrict__ conicOpacity;
+	QMvec3*    __restrict__ color;
 
 	size_t tilesTouchedScanTempSize;
 	uint8_t* __restrict__ tilesTouchedScanTemp;
 };
 
-struct MGSDRbinningBuffers : public MGSDRrenderBuffers
+struct DDGSbinningBuffers : public DDGSrenderBuffers
 {
 public:
-	MGSDRbinningBuffers(uint8_t* mem, uint32_t count);
+	DDGSbinningBuffers(uint8_t* mem, uint32_t count);
 
 	uint64_t* __restrict__ keys;
 	uint32_t* __restrict__ indices;
@@ -91,24 +91,24 @@ public:
 	uint8_t* sortTemp;
 };
 
-struct MGSDRimageBuffers : public MGSDRrenderBuffers
+struct DDGSimageBuffers : public DDGSrenderBuffers
 {
 public:
-	MGSDRimageBuffers(uint8_t* mem, uint32_t count);
+	DDGSimageBuffers(uint8_t* mem, uint32_t count);
 
 	uint2*    __restrict__ tileRanges;
 	float*    __restrict__ accumAlpha;
 	uint32_t* __restrict__ numContributors;
 };
 
-struct MGSDRderivativeBuffers : public MGSDRrenderBuffers
+struct DDGSderivativeBuffers : public DDGSrenderBuffers
 {
 public:
-	MGSDRderivativeBuffers(uint8_t* mem, uint32_t count);
+	DDGSderivativeBuffers(uint8_t* mem, uint32_t count);
 
 	QMvec2* __restrict__ dLdPixCenters;
 	QMvec3* __restrict__ dLdConics;
 	QMvec3* __restrict__ dLdColors;
 };
 
-#endif //#ifndef MGS_DR_BUFFERS_H
+#endif //#ifndef DDGS_BUFFERS_H

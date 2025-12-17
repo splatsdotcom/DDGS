@@ -1,11 +1,11 @@
-#include "mgs_dr.hpp"
+#include "ddgs.hpp"
 
-#include "mgs_dr_forward.h"
-#include "mgs_dr_backward.h"
+#include "ddgs_forward.h"
+#include "ddgs_backward.h"
 
 //-------------------------------------------//
 
-MGSDRresizeFunc _mgs_dr_tensor_resize_function(at::Tensor& tensor)
+DDGSresizeFunc _ddgs_tensor_resize_function(at::Tensor& tensor)
 {
     return [&tensor](uint64_t size) {
         tensor.resize_({(long long)size});
@@ -13,7 +13,7 @@ MGSDRresizeFunc _mgs_dr_tensor_resize_function(at::Tensor& tensor)
     };
 }
 
-uint32_t _mgs_dr_validate_gaussians(const at::Tensor& means, const at::Tensor& scales, const at::Tensor& rotations, const at::Tensor& opacities, const at::Tensor& harmonics)
+uint32_t _ddgs_validate_gaussians(const at::Tensor& means, const at::Tensor& scales, const at::Tensor& rotations, const at::Tensor& opacities, const at::Tensor& harmonics)
 {
 	if(means.dtype() != torch::kFloat32 || scales.dtype() != torch::kFloat32 || rotations.dtype() != torch::kFloat32 || opacities.dtype() != torch::kFloat32 || harmonics.dtype() != torch::kFloat32)
 		throw std::invalid_argument("Inputs must be float32");
@@ -39,14 +39,14 @@ uint32_t _mgs_dr_validate_gaussians(const at::Tensor& means, const at::Tensor& s
 //-------------------------------------------//
 
 std::tuple<at::Tensor, int64_t, at::Tensor, at::Tensor, at::Tensor>
-mgs_dr_forward(const c10::intrusive_ptr<MGSDRsettingsTorch>& settings,
-               const at::Tensor& means, const at::Tensor& scales, const at::Tensor& rotations, const at::Tensor& opacities, const at::Tensor& harmonics)
+ddgs_forward(const c10::intrusive_ptr<DDGSsettingsTorch>& settings,
+             const at::Tensor& means, const at::Tensor& scales, const at::Tensor& rotations, const at::Tensor& opacities, const at::Tensor& harmonics)
 {
-	MGSDRsettings cSettings = settings->settings;
+	DDGSsettings cSettings = settings->settings;
 
 	//validate:
 	//---------------
-	uint32_t numGaussians = _mgs_dr_validate_gaussians(means, scales, rotations, opacities, harmonics);
+	uint32_t numGaussians = _ddgs_validate_gaussians(means, scales, rotations, opacities, harmonics);
 
 	//allocate output tensors:
 	//---------------
@@ -62,7 +62,7 @@ mgs_dr_forward(const c10::intrusive_ptr<MGSDRsettingsTorch>& settings,
 
 	//populate gaussians struct:
 	//---------------
-	MGSDRgaussians gaussians;
+	DDGSgaussians gaussians;
 	gaussians.count = numGaussians;
 	gaussians.means     = means    .contiguous().data_ptr<float>();
 	gaussians.scales    = scales   .contiguous().data_ptr<float>();
@@ -72,12 +72,12 @@ mgs_dr_forward(const c10::intrusive_ptr<MGSDRsettingsTorch>& settings,
 
 	//render:
 	//---------------	
-	uint32_t numRendered = mgs_dr_forward_cuda(
+	uint32_t numRendered = ddgs_forward_cuda(
 		cSettings, gaussians,
 		
-		_mgs_dr_tensor_resize_function(geomBuf),
-		_mgs_dr_tensor_resize_function(binningBuf),
-		_mgs_dr_tensor_resize_function(imageBuf),
+		_ddgs_tensor_resize_function(geomBuf),
+		_ddgs_tensor_resize_function(binningBuf),
+		_ddgs_tensor_resize_function(imageBuf),
 		
 		outImage.contiguous().data_ptr<float>()
 	);
@@ -91,15 +91,15 @@ mgs_dr_forward(const c10::intrusive_ptr<MGSDRsettingsTorch>& settings,
 }
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
-mgs_dr_backward(const c10::intrusive_ptr<MGSDRsettingsTorch>& settings, const at::Tensor& dLdImage,
-                const at::Tensor& means, const at::Tensor& scales, const at::Tensor& rotations, const at::Tensor& opacities, const at::Tensor& harmonics,
-			    int64_t numRendered, const at::Tensor& geomBufs, const at::Tensor& binningBufs, const at::Tensor& imageBufs)
+ddgs_backward(const c10::intrusive_ptr<DDGSsettingsTorch>& settings, const at::Tensor& dLdImage,
+              const at::Tensor& means, const at::Tensor& scales, const at::Tensor& rotations, const at::Tensor& opacities, const at::Tensor& harmonics,
+			  int64_t numRendered, const at::Tensor& geomBufs, const at::Tensor& binningBufs, const at::Tensor& imageBufs)
 {
-	MGSDRsettings cSettings = settings->settings;
+	DDGSsettings cSettings = settings->settings;
 
 	//validate:
 	//---------------
-	uint32_t numGaussians = _mgs_dr_validate_gaussians(means, scales, rotations, opacities, harmonics);
+	uint32_t numGaussians = _ddgs_validate_gaussians(means, scales, rotations, opacities, harmonics);
 
 	if(dLdImage.dim() != 3 || (uint32_t)dLdImage.size(0) != cSettings.height || (uint32_t)dLdImage.size(1) != cSettings.width || dLdImage.size(2) != 3)
 		throw std::invalid_argument("dLdImage must have shape (height, width, 3)");
@@ -112,7 +112,7 @@ mgs_dr_backward(const c10::intrusive_ptr<MGSDRsettingsTorch>& settings, const at
 	at::Tensor dLdOpacities = torch::zeros_like(opacities).contiguous();
 	at::Tensor dLdHarmonics = torch::zeros_like(harmonics).contiguous();
 
-	MGSDRgaussians dLdGaussians;
+	DDGSgaussians dLdGaussians;
 	dLdGaussians.means     = dLdMeans    .data_ptr<float>();
 	dLdGaussians.scales    = dLdScales   .data_ptr<float>();
 	dLdGaussians.rotations = dLdRotations.data_ptr<float>();
@@ -121,7 +121,7 @@ mgs_dr_backward(const c10::intrusive_ptr<MGSDRsettingsTorch>& settings, const at
 
 	//populate gaussians struct:
 	//---------------
-	MGSDRgaussians gaussians;
+	DDGSgaussians gaussians;
 	gaussians.count = numGaussians;
 	gaussians.means     = means    .contiguous().data_ptr<float>();
 	gaussians.scales    = scales   .contiguous().data_ptr<float>();
@@ -131,7 +131,7 @@ mgs_dr_backward(const c10::intrusive_ptr<MGSDRsettingsTorch>& settings, const at
 
 	//render:
 	//---------------
-	mgs_dr_backward_cuda(
+	ddgs_backward_cuda(
 		cSettings, dLdImage.contiguous().data_ptr<float>(), gaussians,
 
 		numRendered,
@@ -153,8 +153,8 @@ mgs_dr_backward(const c10::intrusive_ptr<MGSDRsettingsTorch>& settings, const at
 	};
 }
 
-MGSDRsettingsTorch::MGSDRsettingsTorch(int64_t width, int64_t height, const at::Tensor& view, const at::Tensor& proj,
-                                       double focalX, double focalY, bool debug)
+DDGSsettingsTorch::DDGSsettingsTorch(int64_t width, int64_t height, const at::Tensor& view, const at::Tensor& proj,
+                                     double focalX, double focalY, bool debug)
 {
 	//validate:
 	//---------------

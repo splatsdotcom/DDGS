@@ -1,6 +1,6 @@
-#define __FILENAME__ "mgs_dr_forward.cu"
+#define __FILENAME__ "ddgs_forward.cu"
 
-#include "mgs_dr_forward.h"
+#include "ddgs_forward.h"
 
 #include <cuda_runtime.h>
 #include <stdint.h>
@@ -9,8 +9,8 @@
 #include <cub/cub.cuh>
 #include <cub/device/device_radix_sort.cuh>
 
-#include "mgs_dr_buffers.h"
-#include "mgs_dr_global.h"
+#include "ddgs_buffers.h"
+#include "ddgs_global.h"
 
 namespace cg = cooperative_groups;
 
@@ -18,35 +18,35 @@ namespace cg = cooperative_groups;
 
 //TODO: tweak these!
 
-#define MGS_DR_PREPROCESS_WORKGROUP_SIZE       64
-#define MGS_DR_KEY_WRITE_WORKGROUP_SIZE        64
-#define MGS_DR_FIND_TILE_RANGES_WORKGROUP_SIZE 64
+#define DDGS_PREPROCESS_WORKGROUP_SIZE       64
+#define DDGS_KEY_WRITE_WORKGROUP_SIZE        64
+#define DDGS_FIND_TILE_RANGES_WORKGROUP_SIZE 64
 
 //-------------------------------------------//
 
-__global__ static void __launch_bounds__(MGS_DR_PREPROCESS_WORKGROUP_SIZE)
-_mgs_dr_foward_preprocess_kernel(MGSDRsettings settings, MGSDRgaussians gaussians, MGSDRgeomBuffers outGeom);
+__global__ static void __launch_bounds__(DDGS_PREPROCESS_WORKGROUP_SIZE)
+_ddgs_foward_preprocess_kernel(DDGSsettings settings, DDGSgaussians gaussians, DDGSgeomBuffers outGeom);
 
-__global__ static void __launch_bounds__(MGS_DR_KEY_WRITE_WORKGROUP_SIZE)
-_mgs_dr_forward_write_keys_kernel(uint32_t width, uint32_t height,
-                                  uint32_t numGaussians, const MGSDRgeomBuffers geom,
-                                  uint64_t* outKeys, uint32_t* outValues);
+__global__ static void __launch_bounds__(DDGS_KEY_WRITE_WORKGROUP_SIZE)
+_ddgs_forward_write_keys_kernel(uint32_t width, uint32_t height,
+                                uint32_t numGaussians, const DDGSgeomBuffers geom,
+                                uint64_t* outKeys, uint32_t* outValues);
 
-__global__ static void __launch_bounds__(MGS_DR_FIND_TILE_RANGES_WORKGROUP_SIZE)
-_mgs_dr_forward_find_tile_ranges_kernel(uint32_t numRendered, const uint64_t* keys, uint2* outRanges);
+__global__ static void __launch_bounds__(DDGS_FIND_TILE_RANGES_WORKGROUP_SIZE)
+_ddgs_forward_find_tile_ranges_kernel(uint32_t numRendered, const uint64_t* keys, uint2* outRanges);
 
-__global__ static void __launch_bounds__(MGS_DR_TILE_LEN) 
-_mgs_dr_forward_splat_kernel(MGSDRsettings settings, 
-                             const uint2* ranges, const uint32_t* indices, const MGSDRgeomBuffers geom,
-                             float* outColor, float* outAccumAlpha, uint32_t* outNumContributors);
+__global__ static void __launch_bounds__(DDGS_TILE_LEN) 
+_ddgs_forward_splat_kernel(DDGSsettings settings, 
+                           const uint2* ranges, const uint32_t* indices, const DDGSgeomBuffers geom,
+                           float* outColor, float* outAccumAlpha, uint32_t* outNumContributors);
 
-__device__ static void _mgs_dr_get_tile_bounds(uint32_t width, uint32_t height, QMvec2 pixCenter, float pixRadius, uint2& tileMin, uint2& tileMax);
+__device__ static void _ddgs_get_tile_bounds(uint32_t width, uint32_t height, QMvec2 pixCenter, float pixRadius, uint2& tileMin, uint2& tileMax);
 
 //-------------------------------------------//
 
-uint32_t mgs_dr_forward_cuda(MGSDRsettings settings, MGSDRgaussians gaussians,
-                             MGSDRresizeFunc createGeomBuf, MGSDRresizeFunc createBinningBuf, MGSDRresizeFunc createImageBuf,
-                             float* outImg)
+uint32_t ddgs_forward_cuda(DDGSsettings settings, DDGSgaussians gaussians,
+                           DDGSresizeFunc createGeomBuf, DDGSresizeFunc createBinningBuf, DDGSresizeFunc createImageBuf,
+                           float* outImg)
 {
 	//validate:
 	//---------------
@@ -55,93 +55,93 @@ uint32_t mgs_dr_forward_cuda(MGSDRsettings settings, MGSDRgaussians gaussians,
 
 	//start profiling:
 	//---------------
-	MGS_DR_PROFILE_REGION_START(total);
+	DDGS_PROFILE_REGION_START(total);
 
 	//allocate geometry + image buffers:
 	//---------------
-	MGS_DR_PROFILE_REGION_START(allocateGeomImage);
+	DDGS_PROFILE_REGION_START(allocateGeomImage);
 
-	uint32_t tilesWidth  = _mgs_ceildivide32(settings.width , MGS_DR_TILE_SIZE);
-	uint32_t tilesHeight = _mgs_ceildivide32(settings.height, MGS_DR_TILE_SIZE);
+	uint32_t tilesWidth  = _ddgs_ceildivide32(settings.width , DDGS_TILE_SIZE);
+	uint32_t tilesHeight = _ddgs_ceildivide32(settings.height, DDGS_TILE_SIZE);
 	uint32_t tilesLen = tilesWidth * tilesHeight;
 
 	uint8_t* geomBufMem = createGeomBuf(
-		MGSDRrenderBuffers::required_mem<MGSDRgeomBuffers>(gaussians.count)
+		DDGSrenderBuffers::required_mem<DDGSgeomBuffers>(gaussians.count)
 	);
 	uint8_t* imageBufMem = createImageBuf(
-		MGSDRimageBuffers::required_mem<MGSDRimageBuffers>(settings.width * settings.height)
+		DDGSimageBuffers::required_mem<DDGSimageBuffers>(settings.width * settings.height)
 	);
 	
-	MGSDRgeomBuffers geomBufs = MGS_DR_CUDA_ERROR_CHECK(MGSDRgeomBuffers(
+	DDGSgeomBuffers geomBufs = DDGS_CUDA_ERROR_CHECK(DDGSgeomBuffers(
 		geomBufMem, gaussians.count
 	));
-	MGSDRimageBuffers imageBufs = MGS_DR_CUDA_ERROR_CHECK(MGSDRimageBuffers(
+	DDGSimageBuffers imageBufs = DDGS_CUDA_ERROR_CHECK(DDGSimageBuffers(
 		imageBufMem, settings.width * settings.height
 	));
 
-	MGS_DR_PROFILE_REGION_END(allocateGeomImage);
+	DDGS_PROFILE_REGION_END(allocateGeomImage);
 
 	//preprocess:
 	//---------------
-	MGS_DR_PROFILE_REGION_START(preprocess);
+	DDGS_PROFILE_REGION_START(preprocess);
 
-	uint32_t numWorkgroupsPreprocess = _mgs_ceildivide32(gaussians.count, MGS_DR_PREPROCESS_WORKGROUP_SIZE);
-	_mgs_dr_foward_preprocess_kernel<<<numWorkgroupsPreprocess, MGS_DR_PREPROCESS_WORKGROUP_SIZE>>>(
+	uint32_t numWorkgroupsPreprocess = _ddgs_ceildivide32(gaussians.count, DDGS_PREPROCESS_WORKGROUP_SIZE);
+	_ddgs_foward_preprocess_kernel<<<numWorkgroupsPreprocess, DDGS_PREPROCESS_WORKGROUP_SIZE>>>(
 		settings, gaussians, geomBufs
 	);
-	MGS_DR_CUDA_ERROR_CHECK();
+	DDGS_CUDA_ERROR_CHECK();
 
-	MGS_DR_PROFILE_REGION_END(preprocess);
+	DDGS_PROFILE_REGION_END(preprocess);
 
 	//prefix sum on tile counts:
 	//---------------
-	MGS_DR_PROFILE_REGION_START(tileCountScan);
+	DDGS_PROFILE_REGION_START(tileCountScan);
 
-	MGS_DR_CUDA_ERROR_CHECK(cub::DeviceScan::InclusiveSum(
+	DDGS_CUDA_ERROR_CHECK(cub::DeviceScan::InclusiveSum(
 		geomBufs.tilesTouchedScanTemp, geomBufs.tilesTouchedScanTempSize, geomBufs.tilesTouched, geomBufs.tilesTouchedScan, gaussians.count
 	));
 
 	uint32_t numRendered;
-	MGS_DR_CUDA_ERROR_CHECK(cudaMemcpy(
+	DDGS_CUDA_ERROR_CHECK(cudaMemcpy(
 		&numRendered, geomBufs.tilesTouchedScan + gaussians.count - 1, sizeof(uint32_t), cudaMemcpyDeviceToHost
 	));
 
-	MGS_DR_PROFILE_REGION_END(tileCountScan);
+	DDGS_PROFILE_REGION_END(tileCountScan);
 
 	if(numRendered == 0)
 		return 0;
 
 	//allocate binning buffers:
 	//---------------
-	MGS_DR_PROFILE_REGION_START(allocateBinning);
+	DDGS_PROFILE_REGION_START(allocateBinning);
 
 	uint8_t* binningBufMem = createBinningBuf(
-		MGSDRrenderBuffers::required_mem<MGSDRbinningBuffers>(numRendered)
+		DDGSrenderBuffers::required_mem<DDGSbinningBuffers>(numRendered)
 	);
 
-	MGSDRbinningBuffers binningBufs = MGS_DR_CUDA_ERROR_CHECK(MGSDRbinningBuffers(
+	DDGSbinningBuffers binningBufs = DDGS_CUDA_ERROR_CHECK(DDGSbinningBuffers(
 		binningBufMem, numRendered
 	));
 
-	MGS_DR_PROFILE_REGION_END(allocateBinning);
+	DDGS_PROFILE_REGION_END(allocateBinning);
 
 	//write keys:
 	//---------------
-	MGS_DR_PROFILE_REGION_START(writeKeys);
+	DDGS_PROFILE_REGION_START(writeKeys);
 
-	uint32_t numWorkgroupsWriteKeys = _mgs_ceildivide32(gaussians.count, MGS_DR_KEY_WRITE_WORKGROUP_SIZE);
-	_mgs_dr_forward_write_keys_kernel<<<numWorkgroupsWriteKeys, MGS_DR_KEY_WRITE_WORKGROUP_SIZE>>>(
+	uint32_t numWorkgroupsWriteKeys = _ddgs_ceildivide32(gaussians.count, DDGS_KEY_WRITE_WORKGROUP_SIZE);
+	_ddgs_forward_write_keys_kernel<<<numWorkgroupsWriteKeys, DDGS_KEY_WRITE_WORKGROUP_SIZE>>>(
 		settings.width, settings.height,
 		gaussians.count, geomBufs,
 		binningBufs.keys, binningBufs.indices
 	);
-	MGS_DR_CUDA_ERROR_CHECK();
+	DDGS_CUDA_ERROR_CHECK();
 
-	MGS_DR_PROFILE_REGION_END(writeKeys);
+	DDGS_PROFILE_REGION_END(writeKeys);
 
 	//sort keys:
 	//---------------
-	MGS_DR_PROFILE_REGION_START(sortKeys);
+	DDGS_PROFILE_REGION_START(sortKeys);
 
 	uint32_t numTileBits = 0;
 	while(tilesLen > 0)
@@ -150,58 +150,58 @@ uint32_t mgs_dr_forward_cuda(MGSDRsettings settings, MGSDRgaussians gaussians,
 		tilesLen >>= 1;
 	}
 
-	MGS_DR_CUDA_ERROR_CHECK(cub::DeviceRadixSort::SortPairs(
+	DDGS_CUDA_ERROR_CHECK(cub::DeviceRadixSort::SortPairs(
 		binningBufs.sortTemp, binningBufs.sortTempSize,
 		binningBufs.keys, binningBufs.keysSorted, binningBufs.indices, binningBufs.indicesSorted,
 		numRendered, 0, 32 + numTileBits
 	));
 
-	MGS_DR_PROFILE_REGION_END(sortKeys);
+	DDGS_PROFILE_REGION_END(sortKeys);
 
 	//get tile ranges:
 	//---------------
-	MGS_DR_PROFILE_REGION_START(tileRanges);
+	DDGS_PROFILE_REGION_START(tileRanges);
 
-	MGS_DR_CUDA_ERROR_CHECK(cudaMemset(
+	DDGS_CUDA_ERROR_CHECK(cudaMemset(
 		imageBufs.tileRanges, 0, tilesWidth * tilesHeight * sizeof(uint2)
 	));
 
-	uint32_t numWorkgroupsFindTileRanges = _mgs_ceildivide32(numRendered, MGS_DR_FIND_TILE_RANGES_WORKGROUP_SIZE);
-	_mgs_dr_forward_find_tile_ranges_kernel<<<numWorkgroupsFindTileRanges, MGS_DR_FIND_TILE_RANGES_WORKGROUP_SIZE>>>(
+	uint32_t numWorkgroupsFindTileRanges = _ddgs_ceildivide32(numRendered, DDGS_FIND_TILE_RANGES_WORKGROUP_SIZE);
+	_ddgs_forward_find_tile_ranges_kernel<<<numWorkgroupsFindTileRanges, DDGS_FIND_TILE_RANGES_WORKGROUP_SIZE>>>(
 		numRendered, binningBufs.keysSorted, imageBufs.tileRanges
 	);
-	MGS_DR_CUDA_ERROR_CHECK();
+	DDGS_CUDA_ERROR_CHECK();
 
-	MGS_DR_PROFILE_REGION_END(tileRanges);
+	DDGS_PROFILE_REGION_END(tileRanges);
 
 	//splat:
 	//---------------
-	MGS_DR_PROFILE_REGION_START(splat);
+	DDGS_PROFILE_REGION_START(splat);
 
-	_mgs_dr_forward_splat_kernel<<<{ tilesWidth, tilesHeight }, { MGS_DR_TILE_SIZE, MGS_DR_TILE_SIZE }>>>(
+	_ddgs_forward_splat_kernel<<<{ tilesWidth, tilesHeight }, { DDGS_TILE_SIZE, DDGS_TILE_SIZE }>>>(
 		settings,
 		imageBufs.tileRanges, binningBufs.indicesSorted, geomBufs,
 		outImg, imageBufs.accumAlpha, imageBufs.numContributors
 	);
-	MGS_DR_CUDA_ERROR_CHECK();
+	DDGS_CUDA_ERROR_CHECK();
 
-	MGS_DR_PROFILE_REGION_END(splat);
+	DDGS_PROFILE_REGION_END(splat);
 
 	//print timing information:
 	//---------------
-	MGS_DR_PROFILE_REGION_END(total);
+	DDGS_PROFILE_REGION_END(total);
 
-#ifdef MGS_DR_PROFILE
+#ifdef DDGS_PROFILE
 	std::cout << std::endl;
-	std::cout << "TOTAL FRAME TIME (forwards): " << MGS_DR_PROFILE_REGION_TIME(total) << "ms" << std::endl;
-	std::cout << "\t- Allocating geom + image buffers: " << MGS_DR_PROFILE_REGION_TIME(allocateGeomImage) << "ms" << std::endl;
-	std::cout << "\t- Preprocessing:                   " << MGS_DR_PROFILE_REGION_TIME(preprocess)        << "ms" << std::endl;
-	std::cout << "\t- Tile count scan:                 " << MGS_DR_PROFILE_REGION_TIME(tileCountScan)     << "ms" << std::endl;
-	std::cout << "\t- Allocating binning buffers:      " << MGS_DR_PROFILE_REGION_TIME(allocateBinning)   << "ms" << std::endl;
-	std::cout << "\t- Writing render keys:             " << MGS_DR_PROFILE_REGION_TIME(writeKeys)         << "ms" << std::endl;
-	std::cout << "\t- Sorting render keys:             " << MGS_DR_PROFILE_REGION_TIME(sortKeys)          << "ms" << std::endl;
-	std::cout << "\t- Finding tile ranges:             " << MGS_DR_PROFILE_REGION_TIME(tileRanges)        << "ms" << std::endl;
-	std::cout << "\t- Rasterizing:                     " << MGS_DR_PROFILE_REGION_TIME(splat)             << "ms" << std::endl;
+	std::cout << "TOTAL FRAME TIME (forwards): " << DDGS_PROFILE_REGION_TIME(total) << "ms" << std::endl;
+	std::cout << "\t- Allocating geom + image buffers: " << DDGS_PROFILE_REGION_TIME(allocateGeomImage) << "ms" << std::endl;
+	std::cout << "\t- Preprocessing:                   " << DDGS_PROFILE_REGION_TIME(preprocess)        << "ms" << std::endl;
+	std::cout << "\t- Tile count scan:                 " << DDGS_PROFILE_REGION_TIME(tileCountScan)     << "ms" << std::endl;
+	std::cout << "\t- Allocating binning buffers:      " << DDGS_PROFILE_REGION_TIME(allocateBinning)   << "ms" << std::endl;
+	std::cout << "\t- Writing render keys:             " << DDGS_PROFILE_REGION_TIME(writeKeys)         << "ms" << std::endl;
+	std::cout << "\t- Sorting render keys:             " << DDGS_PROFILE_REGION_TIME(sortKeys)          << "ms" << std::endl;
+	std::cout << "\t- Finding tile ranges:             " << DDGS_PROFILE_REGION_TIME(tileRanges)        << "ms" << std::endl;
+	std::cout << "\t- Rasterizing:                     " << DDGS_PROFILE_REGION_TIME(splat)             << "ms" << std::endl;
 	std::cout << std::endl;
 #endif
 
@@ -212,8 +212,8 @@ uint32_t mgs_dr_forward_cuda(MGSDRsettings settings, MGSDRgaussians gaussians,
 
 //-------------------------------------------//
 
-__global__ static void __launch_bounds__(MGS_DR_PREPROCESS_WORKGROUP_SIZE)
-_mgs_dr_foward_preprocess_kernel(MGSDRsettings settings, MGSDRgaussians gaussians, MGSDRgeomBuffers outGeom)
+__global__ static void __launch_bounds__(DDGS_PREPROCESS_WORKGROUP_SIZE)
+_ddgs_foward_preprocess_kernel(DDGSsettings settings, DDGSgaussians gaussians, DDGSgeomBuffers outGeom)
 {
 	auto idx = cg::this_grid().thread_rank();
 	if(idx >= gaussians.count)
@@ -295,7 +295,7 @@ _mgs_dr_foward_preprocess_kernel(MGSDRsettings settings, MGSDRgaussians gaussian
 	float pixRadius = ceil(3.0f * sqrt(max(lambda1, lambda2)));
 
 	uint2 tilesMin, tilesMax;
-	_mgs_dr_get_tile_bounds(
+	_ddgs_get_tile_bounds(
 		settings.width, settings.height, pixCenter, pixRadius,
 		tilesMin, tilesMax
 	);
@@ -320,10 +320,10 @@ _mgs_dr_foward_preprocess_kernel(MGSDRsettings settings, MGSDRgaussians gaussian
 	outGeom.color       [idx] = { color.x, color.y, color.z };
 }
 
-__global__ static void __launch_bounds__(MGS_DR_KEY_WRITE_WORKGROUP_SIZE)
-_mgs_dr_forward_write_keys_kernel(uint32_t width, uint32_t height,
-                                  uint32_t numGaussians, const MGSDRgeomBuffers geom,
-                                  uint64_t* outKeys, uint32_t* outValues)
+__global__ static void __launch_bounds__(DDGS_KEY_WRITE_WORKGROUP_SIZE)
+_ddgs_forward_write_keys_kernel(uint32_t width, uint32_t height,
+                                uint32_t numGaussians, const DDGSgeomBuffers geom,
+                                uint64_t* outKeys, uint32_t* outValues)
 {
 	auto idx = cg::this_grid().thread_rank();
 	if(idx >= numGaussians)
@@ -337,7 +337,7 @@ _mgs_dr_forward_write_keys_kernel(uint32_t width, uint32_t height,
 	//get tile bounds:
 	//---------------
 	uint2 tilesMin, tilesMax;
-	_mgs_dr_get_tile_bounds(
+	_ddgs_get_tile_bounds(
 		width, height, geom.pixCenters[idx], geom.pixRadii[idx],
 		tilesMin, tilesMax
 	);
@@ -345,7 +345,7 @@ _mgs_dr_forward_write_keys_kernel(uint32_t width, uint32_t height,
 	//write keys:
 	//---------------
 	uint32_t writeIdx = (idx == 0) ? 0 : geom.tilesTouchedScan[idx - 1];
-	uint32_t tilesWidth  = _mgs_ceildivide32(width , MGS_DR_TILE_SIZE);
+	uint32_t tilesWidth  = _ddgs_ceildivide32(width , DDGS_TILE_SIZE);
 
 	for(uint32_t y = tilesMin.y; y < tilesMax.y; y++)
 	for(uint32_t x = tilesMin.x; x < tilesMax.x; x++)
@@ -359,8 +359,8 @@ _mgs_dr_forward_write_keys_kernel(uint32_t width, uint32_t height,
 	}
 }
 
-__global__ static void __launch_bounds__(MGS_DR_FIND_TILE_RANGES_WORKGROUP_SIZE)
-_mgs_dr_forward_find_tile_ranges_kernel(uint32_t numRendered, const uint64_t* keys, uint2* outRanges)
+__global__ static void __launch_bounds__(DDGS_FIND_TILE_RANGES_WORKGROUP_SIZE)
+_ddgs_forward_find_tile_ranges_kernel(uint32_t numRendered, const uint64_t* keys, uint2* outRanges)
 {
 	auto idx = cg::this_grid().thread_rank();
 	if(idx >= numRendered)
@@ -384,21 +384,21 @@ _mgs_dr_forward_find_tile_ranges_kernel(uint32_t numRendered, const uint64_t* ke
 		outRanges[tileIdx].y = numRendered;
 }
 
-__global__ static void __launch_bounds__(MGS_DR_TILE_LEN)
-_mgs_dr_forward_splat_kernel(MGSDRsettings settings, 
-                             const uint2* ranges, const uint32_t* indices, const MGSDRgeomBuffers geom,
-                             float* outColor, float* outAccumAlpha, uint32_t* outNumContributors)
+__global__ static void __launch_bounds__(DDGS_TILE_LEN)
+_ddgs_forward_splat_kernel(DDGSsettings settings, 
+                           const uint2* ranges, const uint32_t* indices, const DDGSgeomBuffers geom,
+                           float* outColor, float* outAccumAlpha, uint32_t* outNumContributors)
 {
 	//compute pixel position:
 	//---------------
 	auto block = cg::this_thread_block();
-	uint32_t tilesWidth = _mgs_ceildivide32(settings.width, MGS_DR_TILE_SIZE);
+	uint32_t tilesWidth = _ddgs_ceildivide32(settings.width, DDGS_TILE_SIZE);
 
-	uint32_t pixelMinX = block.group_index().x * MGS_DR_TILE_SIZE;
-	uint32_t pixelMinY = block.group_index().y * MGS_DR_TILE_SIZE;
+	uint32_t pixelMinX = block.group_index().x * DDGS_TILE_SIZE;
+	uint32_t pixelMinY = block.group_index().y * DDGS_TILE_SIZE;
 
-	uint32_t pixelMaxX = min(pixelMinX + MGS_DR_TILE_SIZE, settings.width );
-	uint32_t pixelMaxY = min(pixelMinY + MGS_DR_TILE_SIZE, settings.height);
+	uint32_t pixelMaxX = min(pixelMinX + DDGS_TILE_SIZE, settings.width );
+	uint32_t pixelMaxY = min(pixelMinY + DDGS_TILE_SIZE, settings.height);
 
 	uint32_t pixelX = pixelMinX + block.thread_index().x;
 	uint32_t pixelY = pixelMinY + block.thread_index().y;
@@ -411,13 +411,13 @@ _mgs_dr_forward_splat_kernel(MGSDRsettings settings,
 	//---------------
 	uint2 range = ranges[block.group_index().x + tilesWidth * block.group_index().y];
 	int32_t numToRender = range.y - range.x;
-	uint32_t numRounds = _mgs_ceildivide32(numToRender, MGS_DR_TILE_LEN);
+	uint32_t numRounds = _ddgs_ceildivide32(numToRender, DDGS_TILE_LEN);
 
 	//allocate shared memory:
 	//---------------
-	__shared__ QMvec2 collectedPixCenters  [MGS_DR_TILE_LEN];
-	__shared__ QMvec4 collectedConicOpacity[MGS_DR_TILE_LEN];
-	__shared__ QMvec3 collectedColor       [MGS_DR_TILE_LEN];
+	__shared__ QMvec2 collectedPixCenters  [DDGS_TILE_LEN];
+	__shared__ QMvec4 collectedConicOpacity[DDGS_TILE_LEN];
+	__shared__ QMvec3 collectedColor       [DDGS_TILE_LEN];
 
 	//loop over batches until all threads are done:
 	//---------------
@@ -433,11 +433,11 @@ _mgs_dr_forward_splat_kernel(MGSDRsettings settings,
 	{
 		//exit early if all threads done
 		int numDone = __syncthreads_count(done);
-		if(numDone == MGS_DR_TILE_LEN)
+		if(numDone == DDGS_TILE_LEN)
 			break;
 
 		//collectively load gaussian data
-		uint32_t loadIdx = i * MGS_DR_TILE_LEN + block.thread_rank();
+		uint32_t loadIdx = i * DDGS_TILE_LEN + block.thread_rank();
 		if(range.x + loadIdx < range.y)
 		{
 			uint32_t gaussianIdx = indices[range.x + loadIdx];
@@ -449,7 +449,7 @@ _mgs_dr_forward_splat_kernel(MGSDRsettings settings,
 		block.sync();
 
 		//accumulate collected gaussians
-		for(uint32_t j = 0; j < min(MGS_DR_TILE_LEN, numToRender); j++)
+		for(uint32_t j = 0; j < min(DDGS_TILE_LEN, numToRender); j++)
 		{
 			numContributors++;
 
@@ -463,12 +463,12 @@ _mgs_dr_forward_splat_kernel(MGSDRsettings settings,
 			if(power > 0.0f)
 				continue;
 
-			float alpha = min(MGS_DR_MAX_ALPHA, conicO.w * exp(power));
-			if(alpha < MGS_DR_MIN_ALPHA)
+			float alpha = min(DDGS_MAX_ALPHA, conicO.w * exp(power));
+			if(alpha < DDGS_MIN_ALPHA)
 				continue;
 			
 			float newAccumAlpha = accumAlpha * (1.0f - alpha);
-			if(newAccumAlpha < MGS_DR_ACCUM_ALPHA_CUTOFF)
+			if(newAccumAlpha < DDGS_ACCUM_ALPHA_CUTOFF)
 			{
 				done = true;
 				continue;
@@ -481,7 +481,7 @@ _mgs_dr_forward_splat_kernel(MGSDRsettings settings,
 		}
 
 		//decrement num left to render
-		numToRender -= MGS_DR_TILE_LEN;
+		numToRender -= DDGS_TILE_LEN;
 	}
 
 	//write final color:
@@ -497,16 +497,16 @@ _mgs_dr_forward_splat_kernel(MGSDRsettings settings,
 	}
 }
 
-__device__ static void _mgs_dr_get_tile_bounds(uint32_t width, uint32_t height, QMvec2 pixCenter, float pixRadius, uint2& tileMin, uint2& tileMax)
+__device__ static void _ddgs_get_tile_bounds(uint32_t width, uint32_t height, QMvec2 pixCenter, float pixRadius, uint2& tileMin, uint2& tileMax)
 {
 	//TODO: use a smarter method to generate tiles
 	//this generates far too many tiles for very anisotropic gaussians
 
-	uint32_t tilesWidth  = _mgs_ceildivide32(width , MGS_DR_TILE_SIZE);
-	uint32_t tilesHeight = _mgs_ceildivide32(height, MGS_DR_TILE_SIZE);
+	uint32_t tilesWidth  = _ddgs_ceildivide32(width , DDGS_TILE_SIZE);
+	uint32_t tilesHeight = _ddgs_ceildivide32(height, DDGS_TILE_SIZE);
  
-	tileMin.x = (uint32_t)min(max((int32_t)((pixCenter.x - pixRadius)                        / MGS_DR_TILE_SIZE), 0), tilesWidth );
-	tileMin.y = (uint32_t)min(max((int32_t)((pixCenter.y - pixRadius)                        / MGS_DR_TILE_SIZE), 0), tilesHeight);
-	tileMax.x = (uint32_t)min(max((int32_t)((pixCenter.x + pixRadius + MGS_DR_TILE_SIZE - 1) / MGS_DR_TILE_SIZE), 0), tilesWidth );
-	tileMax.y = (uint32_t)min(max((int32_t)((pixCenter.y + pixRadius + MGS_DR_TILE_SIZE - 1) / MGS_DR_TILE_SIZE), 0), tilesHeight);
+	tileMin.x = (uint32_t)min(max((int32_t)((pixCenter.x - pixRadius)                        / DDGS_TILE_SIZE), 0), tilesWidth );
+	tileMin.y = (uint32_t)min(max((int32_t)((pixCenter.y - pixRadius)                        / DDGS_TILE_SIZE), 0), tilesHeight);
+	tileMax.x = (uint32_t)min(max((int32_t)((pixCenter.x + pixRadius + DDGS_TILE_SIZE - 1) / DDGS_TILE_SIZE), 0), tilesWidth );
+	tileMax.y = (uint32_t)min(max((int32_t)((pixCenter.y + pixRadius + DDGS_TILE_SIZE - 1) / DDGS_TILE_SIZE), 0), tilesHeight);
 }

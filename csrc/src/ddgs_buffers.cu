@@ -1,29 +1,29 @@
-#define __FILENAME__ "mgs_dr_forward.cu"
+#define __FILENAME__ "ddgs_forward.cu"
 
-#include "mgs_dr_buffers.h"
+#include "ddgs_buffers.h"
 
 #include <cub/cub.cuh>
 #include <cub/device/device_radix_sort.cuh>
-#include "mgs_dr_global.h"
+#include "ddgs_global.h"
 
 //-------------------------------------------//
 
 //TODO: should we pass debug here and validate the empty sum/sort calls?
 
-MGSDRrenderBuffers::MGSDRrenderBuffers(uint8_t* mem, uint32_t count) :
+DDGSrenderBuffers::DDGSrenderBuffers(uint8_t* mem, uint32_t count) :
 	m_mem(mem), m_count(count)
 {
 
 }
 
-MGSDRgeomBuffers::MGSDRgeomBuffers(uint8_t* mem, uint32_t count) :
-	MGSDRrenderBuffers(mem, count)
+DDGSgeomBuffers::DDGSgeomBuffers(uint8_t* mem, uint32_t count) :
+	DDGSrenderBuffers(mem, count)
 {
 	pixCenters       = bump<QMvec2>();
 	pixRadii         = bump<float>();
 	depths           = bump<float>();
 	tilesTouched     = bump<uint32_t>();
-	covs             = bump<MGSDRcov3D>();
+	covs             = bump<DDGScov3D>();
 	conicOpacity     = bump<QMvec4>();
 	color            = bump<QMvec3>();
 	tilesTouchedScan = bump<uint32_t>();
@@ -32,8 +32,8 @@ MGSDRgeomBuffers::MGSDRgeomBuffers(uint8_t* mem, uint32_t count) :
 	tilesTouchedScanTemp = bump<uint8_t>(tilesTouchedScanTempSize);
 }
 
-MGSDRbinningBuffers::MGSDRbinningBuffers(uint8_t* mem, uint32_t count) :
-	MGSDRrenderBuffers(mem, count)
+DDGSbinningBuffers::DDGSbinningBuffers(uint8_t* mem, uint32_t count) :
+	DDGSrenderBuffers(mem, count)
 {
 	keys          = bump<uint64_t>();
 	indices       = bump<uint32_t>();
@@ -44,8 +44,8 @@ MGSDRbinningBuffers::MGSDRbinningBuffers(uint8_t* mem, uint32_t count) :
 	sortTemp = bump<uint8_t>(sortTempSize);
 }
 
-MGSDRimageBuffers::MGSDRimageBuffers(uint8_t* mem, uint32_t count) :
-	MGSDRrenderBuffers(mem, count)
+DDGSimageBuffers::DDGSimageBuffers(uint8_t* mem, uint32_t count) :
+	DDGSrenderBuffers(mem, count)
 {
 	//TODO: this is wasteful! only need 1 per tile, can also get away with just a uint32_t
 	tileRanges = bump<uint2>();
@@ -53,8 +53,8 @@ MGSDRimageBuffers::MGSDRimageBuffers(uint8_t* mem, uint32_t count) :
 	numContributors = bump<uint32_t>();
 }
 
-MGSDRderivativeBuffers::MGSDRderivativeBuffers(uint8_t* mem, uint32_t count) :
-	MGSDRrenderBuffers(mem, count)
+DDGSderivativeBuffers::DDGSderivativeBuffers(uint8_t* mem, uint32_t count) :
+	DDGSrenderBuffers(mem, count)
 {
 	dLdPixCenters = bump<QMvec2>();
 	dLdConics     = bump<QMvec3>();

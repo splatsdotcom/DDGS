@@ -5,7 +5,7 @@ from PIL import Image
 import os
 import time
 
-import mgs_diff_renderer as mgsdr
+import ddgs
 
 # ------------------------------------------- #
 
@@ -102,13 +102,13 @@ def main():
 		up = torch.tensor([0.0, 1.0, 0.0], device='cuda')
 		view = look_at(eye, target, up)
 
-		settings = mgsdr.Settings(
+		settings = ddgs.Settings(
 			width=width, height=height,
 			view=view, proj=proj,
 			focalX=focalX, focalY=focalY,
 			debug=False
 		)
-		renderer = mgsdr.Renderer(settings)
+		renderer = ddgs.Renderer(settings)
 
 		with torch.no_grad():
 			img = renderer(gtMeans, gtScales, gtRotations, gtOpacities, gtHarmonics)

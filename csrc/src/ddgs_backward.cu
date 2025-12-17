@@ -1,37 +1,37 @@
-#define __FILENAME__ "mgs_dr_backward.cu"
+#define __FILENAME__ "ddgs_backward.cu"
 
-#include "mgs_dr_backward.h"
+#include "ddgs_backward.h"
 
 #include <cuda_runtime.h>
 #include <stdio.h>
 #include <cooperative_groups.h>
 
-#include "mgs_dr_buffers.h"
-#include "mgs_dr_global.h"
+#include "ddgs_buffers.h"
+#include "ddgs_global.h"
 
 namespace cg = cooperative_groups;
 
 //-------------------------------------------//
 
-#define MGS_DR_PREPROCESS_WORKGROUP_SIZE 64
+#define DDGS_PREPROCESS_WORKGROUP_SIZE 64
 
 //-------------------------------------------//
 
-__global__ static void __launch_bounds__(MGS_DR_TILE_LEN) 
-_mgs_dr_backward_splat_kernel(MGSDRsettings settings, const float* dLdImg, const float* transmittances, const uint32_t* numContributors,
-                              const uint2* ranges, const uint32_t* indices, const MGSDRgeomBuffers geom,
-                              MGSDRderivativeBuffers outIntermediate, float* outDLdOpacities);
+__global__ static void __launch_bounds__(DDGS_TILE_LEN) 
+_ddgs_backward_splat_kernel(DDGSsettings settings, const float* dLdImg, const float* transmittances, const uint32_t* numContributors,
+                            const uint2* ranges, const uint32_t* indices, const DDGSgeomBuffers geom,
+                            DDGSderivativeBuffers outIntermediate, float* outDLdOpacities);
 
-__global__ static void __launch_bounds__(MGS_DR_PREPROCESS_WORKGROUP_SIZE)
-_mgs_dr_backward_preprocess_kernel(MGSDRsettings settings, MGSDRgaussians gaussians,
-								   const MGSDRgeomBuffers geom, const MGSDRderivativeBuffers intermediate,
-                                   MGSDRgaussians outDLdGaussians);
+__global__ static void __launch_bounds__(DDGS_PREPROCESS_WORKGROUP_SIZE)
+_ddgs_backward_preprocess_kernel(DDGSsettings settings, DDGSgaussians gaussians,
+								 const DDGSgeomBuffers geom, const DDGSderivativeBuffers intermediate,
+                                 DDGSgaussians outDLdGaussians);
 
 //-------------------------------------------//
 
-void mgs_dr_backward_cuda(MGSDRsettings settings, const float* dLdImage, MGSDRgaussians gaussians,
-                          uint32_t numRendered, const uint8_t* geomBufsMem, const uint8_t* binningBufsMem, const uint8_t* imageBufsMem,
-                          MGSDRgaussians outDLdGaussians)
+void ddgs_backward_cuda(DDGSsettings settings, const float* dLdImage, DDGSgaussians gaussians,
+                        uint32_t numRendered, const uint8_t* geomBufsMem, const uint8_t* binningBufsMem, const uint8_t* imageBufsMem,
+                        DDGSgaussians outDLdGaussians)
 {
 	//validate:
 	//---------------
@@ -40,69 +40,69 @@ void mgs_dr_backward_cuda(MGSDRsettings settings, const float* dLdImage, MGSDRga
 
 	//start profiling:
 	//---------------
-	MGS_DR_PROFILE_REGION_START(total);
+	DDGS_PROFILE_REGION_START(total);
 
 	//initialize state from foward pass:
 	//---------------
-	MGS_DR_PROFILE_REGION_START(initMem);
+	DDGS_PROFILE_REGION_START(initMem);
 
-	uint32_t tilesWidth  = _mgs_ceildivide32(settings.width , MGS_DR_TILE_SIZE);
-	uint32_t tilesHeight = _mgs_ceildivide32(settings.height, MGS_DR_TILE_SIZE);
+	uint32_t tilesWidth  = _ddgs_ceildivide32(settings.width , DDGS_TILE_SIZE);
+	uint32_t tilesHeight = _ddgs_ceildivide32(settings.height, DDGS_TILE_SIZE);
 
-	MGSDRgeomBuffers geomBufs = MGS_DR_CUDA_ERROR_CHECK(MGSDRgeomBuffers(
+	DDGSgeomBuffers geomBufs = DDGS_CUDA_ERROR_CHECK(DDGSgeomBuffers(
 		(uint8_t*)geomBufsMem, gaussians.count
 	));
-	MGSDRbinningBuffers binningBufs = MGS_DR_CUDA_ERROR_CHECK(MGSDRbinningBuffers(
+	DDGSbinningBuffers binningBufs = DDGS_CUDA_ERROR_CHECK(DDGSbinningBuffers(
 		(uint8_t*)binningBufsMem, numRendered
 	));
-	MGSDRimageBuffers imageBufs = MGS_DR_CUDA_ERROR_CHECK(MGSDRimageBuffers(
+	DDGSimageBuffers imageBufs = DDGS_CUDA_ERROR_CHECK(DDGSimageBuffers(
 		(uint8_t*)imageBufsMem, settings.width * settings.height
 	));
 
-	MGS_DR_PROFILE_REGION_END(initMem);
+	DDGS_PROFILE_REGION_END(initMem);
 
 	//allocate memory for intermediate derivatives:
 	//---------------
-	MGS_DR_PROFILE_REGION_START(allocateIntermediate);
+	DDGS_PROFILE_REGION_START(allocateIntermediate);
 
-	uint64_t intermediateDerivMemSize = MGSDRrenderBuffers::required_mem<MGSDRderivativeBuffers>(gaussians.count);
+	uint64_t intermediateDerivMemSize = DDGSrenderBuffers::required_mem<DDGSderivativeBuffers>(gaussians.count);
 
 	uint8_t* intermediateDerivMem;
-	MGS_DR_CUDA_ERROR_CHECK(cudaMalloc(&intermediateDerivMem, intermediateDerivMemSize));
-	MGS_DR_CUDA_ERROR_CHECK(cudaMemset(intermediateDerivMem, 0, intermediateDerivMemSize));
+	DDGS_CUDA_ERROR_CHECK(cudaMalloc(&intermediateDerivMem, intermediateDerivMemSize));
+	DDGS_CUDA_ERROR_CHECK(cudaMemset(intermediateDerivMem, 0, intermediateDerivMemSize));
 
-	MGSDRderivativeBuffers intermediateDerivs = MGS_DR_CUDA_ERROR_CHECK(MGSDRderivativeBuffers(
+	DDGSderivativeBuffers intermediateDerivs = DDGS_CUDA_ERROR_CHECK(DDGSderivativeBuffers(
 		intermediateDerivMem, gaussians.count
 	));
 
-	MGS_DR_PROFILE_REGION_END(allocateIntermediate);
+	DDGS_PROFILE_REGION_END(allocateIntermediate);
 
 	//backward render:
 	//---------------
-	MGS_DR_PROFILE_REGION_START(rasterize);
+	DDGS_PROFILE_REGION_START(rasterize);
 
-	_mgs_dr_backward_splat_kernel<<<{ tilesWidth, tilesHeight }, { MGS_DR_TILE_SIZE, MGS_DR_TILE_SIZE }>>>(
+	_ddgs_backward_splat_kernel<<<{ tilesWidth, tilesHeight }, { DDGS_TILE_SIZE, DDGS_TILE_SIZE }>>>(
 		settings, dLdImage, imageBufs.accumAlpha, imageBufs.numContributors,
 		imageBufs.tileRanges, binningBufs.indicesSorted, geomBufs,
 		intermediateDerivs, outDLdGaussians.opacities
 	);
-	MGS_DR_CUDA_ERROR_CHECK();
+	DDGS_CUDA_ERROR_CHECK();
 
-	MGS_DR_PROFILE_REGION_END(rasterize);
+	DDGS_PROFILE_REGION_END(rasterize);
 
 	//backward preprocess:
 	//---------------
-	MGS_DR_PROFILE_REGION_START(preprocess);
+	DDGS_PROFILE_REGION_START(preprocess);
 
-	uint32_t numWorkgroupsPreprocess = _mgs_ceildivide32(gaussians.count, MGS_DR_PREPROCESS_WORKGROUP_SIZE);
-	_mgs_dr_backward_preprocess_kernel<<<numWorkgroupsPreprocess, MGS_DR_PREPROCESS_WORKGROUP_SIZE>>>(
+	uint32_t numWorkgroupsPreprocess = _ddgs_ceildivide32(gaussians.count, DDGS_PREPROCESS_WORKGROUP_SIZE);
+	_ddgs_backward_preprocess_kernel<<<numWorkgroupsPreprocess, DDGS_PREPROCESS_WORKGROUP_SIZE>>>(
 		settings, gaussians,
 		geomBufs, intermediateDerivs,
 		outDLdGaussians
 	);
-	MGS_DR_CUDA_ERROR_CHECK();
+	DDGS_CUDA_ERROR_CHECK();
 
-	MGS_DR_PROFILE_REGION_END(preprocess);
+	DDGS_PROFILE_REGION_END(preprocess);
 
 	//cleanup:
 	//---------------
@@ -110,36 +110,36 @@ void mgs_dr_backward_cuda(MGSDRsettings settings, const float* dLdImage, MGSDRga
 
 	//print timing information:
 	//---------------
-	MGS_DR_PROFILE_REGION_END(total);
+	DDGS_PROFILE_REGION_END(total);
 
-#ifdef MGS_DR_PROFILE
+#ifdef DDGS_PROFILE
 	std::cout << std::endl;
-	std::cout << "TOTAL FRAME TIME (backwards): " << MGS_DR_PROFILE_REGION_TIME(total) << "ms" << std::endl;
-	std::cout << "\t- Initializing state from forward:     " << MGS_DR_PROFILE_REGION_TIME(initMem)              << "ms" << std::endl;
-	std::cout << "\t- Allocating intermediate derivatives: " << MGS_DR_PROFILE_REGION_TIME(allocateIntermediate) << "ms" << std::endl;
-	std::cout << "\t- Rasterizing:                         " << MGS_DR_PROFILE_REGION_TIME(rasterize)            << "ms" << std::endl;
-	std::cout << "\t- Preprocessing:                       " << MGS_DR_PROFILE_REGION_TIME(preprocess)           << "ms" << std::endl;
+	std::cout << "TOTAL FRAME TIME (backwards): " << DDGS_PROFILE_REGION_TIME(total) << "ms" << std::endl;
+	std::cout << "\t- Initializing state from forward:     " << DDGS_PROFILE_REGION_TIME(initMem)              << "ms" << std::endl;
+	std::cout << "\t- Allocating intermediate derivatives: " << DDGS_PROFILE_REGION_TIME(allocateIntermediate) << "ms" << std::endl;
+	std::cout << "\t- Rasterizing:                         " << DDGS_PROFILE_REGION_TIME(rasterize)            << "ms" << std::endl;
+	std::cout << "\t- Preprocessing:                       " << DDGS_PROFILE_REGION_TIME(preprocess)           << "ms" << std::endl;
 	std::cout << std::endl;
 #endif
 }
 
 //-------------------------------------------//
 
-__global__ static void __launch_bounds__(MGS_DR_TILE_LEN) 
-_mgs_dr_backward_splat_kernel(MGSDRsettings settings, const float* dLdImg, const float* transmittances, const uint32_t* numContributors,
-                              const uint2* ranges, const uint32_t* indices, const MGSDRgeomBuffers geom,
-                              MGSDRderivativeBuffers outIntermediate, float* outDLdOpacities)
+__global__ static void __launch_bounds__(DDGS_TILE_LEN) 
+_ddgs_backward_splat_kernel(DDGSsettings settings, const float* dLdImg, const float* transmittances, const uint32_t* numContributors,
+                            const uint2* ranges, const uint32_t* indices, const DDGSgeomBuffers geom,
+                            DDGSderivativeBuffers outIntermediate, float* outDLdOpacities)
 {
 	//compute pixel position:
 	//---------------
 	auto block = cg::this_thread_block();
-	uint32_t tilesWidth = _mgs_ceildivide32(settings.width, MGS_DR_TILE_SIZE);
+	uint32_t tilesWidth = _ddgs_ceildivide32(settings.width, DDGS_TILE_SIZE);
 
-	uint32_t pixelMinX = block.group_index().x * MGS_DR_TILE_SIZE;
-	uint32_t pixelMinY = block.group_index().y * MGS_DR_TILE_SIZE;
+	uint32_t pixelMinX = block.group_index().x * DDGS_TILE_SIZE;
+	uint32_t pixelMinY = block.group_index().y * DDGS_TILE_SIZE;
 
-	uint32_t pixelMaxX = min(pixelMinX + MGS_DR_TILE_SIZE, settings.width );
-	uint32_t pixelMaxY = min(pixelMinY + MGS_DR_TILE_SIZE, settings.height);
+	uint32_t pixelMaxX = min(pixelMinX + DDGS_TILE_SIZE, settings.width );
+	uint32_t pixelMaxY = min(pixelMinY + DDGS_TILE_SIZE, settings.height);
 
 	uint32_t pixelX = pixelMinX + block.thread_index().x;
 	uint32_t pixelY = pixelMinY + block.thread_index().y;
@@ -152,7 +152,7 @@ _mgs_dr_backward_splat_kernel(MGSDRsettings settings, const float* dLdImg, const
 	//---------------
 	uint2 range = ranges[block.group_index().x + tilesWidth * block.group_index().y];
 	int32_t numToRender = range.y - range.x;
-	uint32_t numRounds = _mgs_ceildivide32(numToRender, MGS_DR_TILE_LEN);
+	uint32_t numRounds = _ddgs_ceildivide32(numToRender, DDGS_TILE_LEN);
 
 	//read dLdPixel:
 	//---------------
@@ -164,10 +164,10 @@ _mgs_dr_backward_splat_kernel(MGSDRsettings settings, const float* dLdImg, const
 
 	//allocate shared memory:
 	//---------------
-	__shared__ uint32_t collectedIndices   [MGS_DR_TILE_LEN];
-	__shared__ QMvec2 collectedPixCenters  [MGS_DR_TILE_LEN];
-	__shared__ QMvec4 collectedConicOpacity[MGS_DR_TILE_LEN];
-	__shared__ QMvec3 collectedColor       [MGS_DR_TILE_LEN];
+	__shared__ uint32_t collectedIndices   [DDGS_TILE_LEN];
+	__shared__ QMvec2 collectedPixCenters  [DDGS_TILE_LEN];
+	__shared__ QMvec4 collectedConicOpacity[DDGS_TILE_LEN];
+	__shared__ QMvec3 collectedColor       [DDGS_TILE_LEN];
 
 	//loop over batches:
 	//---------------
@@ -187,7 +187,7 @@ _mgs_dr_backward_splat_kernel(MGSDRsettings settings, const float* dLdImg, const
 		block.sync();
 
 		//collectively load gaussian data
-		uint32_t loadIdx = i * MGS_DR_TILE_LEN + block.thread_rank();
+		uint32_t loadIdx = i * DDGS_TILE_LEN + block.thread_rank();
 		if(range.x + loadIdx < range.y)
 		{
 			//we load back to front
@@ -202,7 +202,7 @@ _mgs_dr_backward_splat_kernel(MGSDRsettings settings, const float* dLdImg, const
 		block.sync();
 
 		//accumulate collected gaussians
-		for(uint32_t j = 0; j < min(MGS_DR_TILE_LEN, numToRender); j++)
+		for(uint32_t j = 0; j < min(DDGS_TILE_LEN, numToRender); j++)
 		{
 			//initialize local derivatives, needed here for correct reduction
 			QMvec3 dLdColor = qm_vec3_full(0.0f);
@@ -226,8 +226,8 @@ _mgs_dr_backward_splat_kernel(MGSDRsettings settings, const float* dLdImg, const
 				contribute = false;
 
 			float G = exp(power);
-			float alpha = min(MGS_DR_MAX_ALPHA, conicO.w * G);
-			if(alpha < MGS_DR_MIN_ALPHA)
+			float alpha = min(DDGS_MAX_ALPHA, conicO.w * G);
+			if(alpha < DDGS_MIN_ALPHA)
 				contribute = false;
 
 			//update transmittance
@@ -328,14 +328,14 @@ _mgs_dr_backward_splat_kernel(MGSDRsettings settings, const float* dLdImg, const
 		}
 
 		//decrement num left to render
-		numToRender -= MGS_DR_TILE_LEN;
+		numToRender -= DDGS_TILE_LEN;
 	}
 }
 
-__global__ static void __launch_bounds__(MGS_DR_PREPROCESS_WORKGROUP_SIZE)
-_mgs_dr_backward_preprocess_kernel(MGSDRsettings settings, MGSDRgaussians gaussians,
-                                   const MGSDRgeomBuffers geom, const MGSDRderivativeBuffers intermediate,
-                                   MGSDRgaussians outDLdGaussians)
+__global__ static void __launch_bounds__(DDGS_PREPROCESS_WORKGROUP_SIZE)
+_ddgs_backward_preprocess_kernel(DDGSsettings settings, DDGSgaussians gaussians,
+                                 const DDGSgeomBuffers geom, const DDGSderivativeBuffers intermediate,
+                                 DDGSgaussians outDLdGaussians)
 {
 	auto idx = cg::this_grid().thread_rank();
 	if(idx >= gaussians.count || geom.pixRadii[idx] <= 0.0f)
@@ -387,7 +387,7 @@ _mgs_dr_backward_preprocess_kernel(MGSDRsettings settings, MGSDRgaussians gaussi
 	float det = a * c - b * b;
 
 	float dLdA, dLdB, dLdC;
-	MGSDRcov3D dLdCov;
+	DDGScov3D dLdCov;
 	if(det != 0.0f)
 	{
 		float det2Inv = 1.0f / (det * det);
@@ -409,7 +409,7 @@ _mgs_dr_backward_preprocess_kernel(MGSDRsettings settings, MGSDRgaussians gaussi
 		dLdC = 0.0f;
 		dLdB = 0.0f;
 
-		dLdCov = (MGSDRcov3D){0};
+		dLdCov = (DDGScov3D){0};
 	}
 
 	//compute gradients w.r.t. mean (where the mean affects the jacobian):
