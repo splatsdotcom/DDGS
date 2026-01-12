@@ -38,7 +38,7 @@ _ddgs_forward_find_tile_ranges_kernel(uint32_t numRendered, const uint64_t* keys
 __global__ static void __launch_bounds__(DDGS_TILE_LEN) 
 _ddgs_forward_splat_kernel(DDGSsettings settings, 
                            const uint2* ranges, const uint32_t* indices, const DDGSgeomBuffers geom,
-                           float* outColor, float* outAccumAlpha, uint32_t* outNumContributors);
+                           float* outColor, float* outAlpha, float* outTransmittance, uint32_t* outNumContributors);
 
 __device__ static void _ddgs_get_tile_bounds(uint32_t width, uint32_t height, QMvec2 pixCenter, float pixRadius, uint2& tileMin, uint2& tileMax);
 
@@ -46,7 +46,7 @@ __device__ static void _ddgs_get_tile_bounds(uint32_t width, uint32_t height, QM
 
 uint32_t ddgs_forward_cuda(DDGSsettings settings, DDGSgaussians gaussians,
                            DDGSresizeFunc createGeomBuf, DDGSresizeFunc createBinningBuf, DDGSresizeFunc createImageBuf,
-                           float* outImg)
+                           float* outImg, float* outAlpha)
 {
 	//validate:
 	//---------------
@@ -181,7 +181,7 @@ uint32_t ddgs_forward_cuda(DDGSsettings settings, DDGSgaussians gaussians,
 	_ddgs_forward_splat_kernel<<<{ tilesWidth, tilesHeight }, { DDGS_TILE_SIZE, DDGS_TILE_SIZE }>>>(
 		settings,
 		imageBufs.tileRanges, binningBufs.indicesSorted, geomBufs,
-		outImg, imageBufs.accumAlpha, imageBufs.numContributors
+		outImg, outAlpha, imageBufs.transmittance, imageBufs.numContributors
 	);
 	DDGS_CUDA_ERROR_CHECK();
 
@@ -387,7 +387,7 @@ _ddgs_forward_find_tile_ranges_kernel(uint32_t numRendered, const uint64_t* keys
 __global__ static void __launch_bounds__(DDGS_TILE_LEN)
 _ddgs_forward_splat_kernel(DDGSsettings settings, 
                            const uint2* ranges, const uint32_t* indices, const DDGSgeomBuffers geom,
-                           float* outColor, float* outAccumAlpha, uint32_t* outNumContributors)
+                           float* outColor, float* outAlpha, float* outTransmittance, uint32_t* outNumContributors)
 {
 	//compute pixel position:
 	//---------------
@@ -423,7 +423,7 @@ _ddgs_forward_splat_kernel(DDGSsettings settings,
 	//---------------
 	bool done = !inside;
 
-	float accumAlpha = 1.0f;
+	float accumTransmittance = 1.0f;
 	QMvec3 accumColor = qm_vec3_full(0.0f);
 
 	uint32_t numContributors = 0;
@@ -467,15 +467,15 @@ _ddgs_forward_splat_kernel(DDGSsettings settings,
 			if(alpha < DDGS_MIN_ALPHA)
 				continue;
 			
-			float newAccumAlpha = accumAlpha * (1.0f - alpha);
-			if(newAccumAlpha < DDGS_ACCUM_ALPHA_CUTOFF)
+			float newAccumTramsittance = accumTransmittance * (1.0f - alpha);
+			if(newAccumTramsittance < DDGS_TRANSMITTANCE_CUTOFF)
 			{
 				done = true;
 				continue;
 			}
 
-			accumColor = qm_vec3_add(accumColor, qm_vec3_scale(collectedColor[j], alpha * accumAlpha));
-			accumAlpha = newAccumAlpha;
+			accumColor = qm_vec3_add(accumColor, qm_vec3_scale(collectedColor[j], alpha * accumTransmittance));
+			accumTransmittance = newAccumTramsittance;
 
 			lastContributor = numContributors;
 		}
@@ -491,8 +491,9 @@ _ddgs_forward_splat_kernel(DDGSsettings settings,
 		outColor[pixelId * 3 + 0] = accumColor.r;
 		outColor[pixelId * 3 + 1] = accumColor.g;
 		outColor[pixelId * 3 + 2] = accumColor.b;
+		outAlpha[pixelId] = 1.0f - accumTransmittance;
 
-		outAccumAlpha[pixelId] = accumAlpha;
+		outTransmittance[pixelId] = accumTransmittance;
 		outNumContributors[pixelId] = lastContributor;
 	}
 }

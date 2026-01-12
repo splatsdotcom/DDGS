@@ -97,7 +97,7 @@ public:
 	DDGSimageBuffers(uint8_t* mem, uint32_t count);
 
 	uint2*    __restrict__ tileRanges;
-	float*    __restrict__ accumAlpha;
+	float*    __restrict__ transmittance;
 	uint32_t* __restrict__ numContributors;
 };
 

@@ -111,7 +111,7 @@ def main():
 		renderer = ddgs.Renderer(settings)
 
 		with torch.no_grad():
-			img = renderer(gtMeans, gtScales, gtRotations, gtOpacities, gtHarmonics)
+			img = renderer(gtMeans, gtScales, gtRotations, gtOpacities, gtHarmonics).color
 
 		views.append((renderer, img))
 
@@ -139,7 +139,7 @@ def main():
 		totalLoss = 0.0
 
 		for (renderer, gtImg) in views:
-			predImg = renderer(means, scales, rotations, opacities, harmonics)
+			predImg = renderer(means, scales, rotations, opacities, harmonics).color
 			loss = torch.nn.functional.mse_loss(predImg, gtImg)
 			totalLoss += loss
 

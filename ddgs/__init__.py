@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import math
+from typing import NamedTuple
 from . import _C
 
 # ------------------------------------------- #
@@ -38,11 +39,16 @@ def _perspective(fovY, aspect, zNear, zFar):
 	
 # ------------------------------------------- #
 
-# just a wrapper for torch.classes.ddgs.Settings
+class RenderOutputs:
+	COLOR = 1 << 0
+	ALPHA = 1 << 1
+
 class Settings:	
 	def __init__(self, width: int, height: int, 
-	             view: torch.Tensor, proj: torch.Tensor, focalX: float, focalY: float,
-				 debug: bool = False):
+				 view: torch.Tensor, proj: torch.Tensor, focalX: float, focalY: float,
+				 outputs: RenderOutputs = RenderOutputs.COLOR, debug: bool = False):
+
+		self.outputs = outputs
 
 		self.cSettings = torch.classes.ddgs.Settings(
 			width,
@@ -94,9 +100,9 @@ class Settings:
 class RenderFunction(torch.autograd.Function):
 	@staticmethod
 	def forward(ctx, settings: Settings,
-	            means: torch.Tensor, scales: torch.Tensor, rotations: torch.Tensor, opacities: torch.Tensor, harmonics: torch.Tensor) -> torch.Tensor:
+				means: torch.Tensor, scales: torch.Tensor, rotations: torch.Tensor, opacities: torch.Tensor, harmonics: torch.Tensor) -> torch.Tensor:
 		
-		img, numRendered, geomBufs, binningBufs, imageBufs = torch.ops.ddgs.forward(
+		img, alpha, numRendered, geomBufs, binningBufs, imageBufs = torch.ops.ddgs.forward(
 			settings.cSettings, means, scales, rotations, opacities, harmonics
 		)
 
@@ -107,14 +113,16 @@ class RenderFunction(torch.autograd.Function):
 			geomBufs, binningBufs, imageBufs
 		)
 
-		return img
+		ctx.mark_non_differentiable(alpha)
+
+		return img, alpha
 
 	@staticmethod
-	def backward(ctx, grad_output):
+	def backward(ctx, grad_color, grad_alpha):
 		means, scales, rotations, opacities, harmonics, geomBufs, binningBufs, imageBufs = ctx.saved_tensors
 
 		dMean, dScales, dRotations, dOpacities, dHarmonics = torch.ops.ddgs.backward(
-			ctx.settings.cSettings, grad_output,
+			ctx.settings.cSettings, grad_color,
 			means, scales, rotations, opacities, harmonics,
 			ctx.numRendered, geomBufs, binningBufs, imageBufs
 		)
@@ -130,6 +138,10 @@ class RenderFunction(torch.autograd.Function):
 
 # ------------------------------------------- #
 
+class RenderResult(NamedTuple):
+	color: torch.Tensor | None
+	alpha: torch.Tensor | None
+
 def render(settings: Settings,
 		   means: torch.Tensor, scales: torch.Tensor, rotations: torch.Tensor, opacities: torch.Tensor, harmonics: torch.Tensor,
 		   normalizeRotations=True) -> torch.Tensor:
@@ -137,9 +149,14 @@ def render(settings: Settings,
 	if normalizeRotations:
 		rotations = rotations / torch.norm(rotations, dim=-1, keepdim=True).clamp(min=1e-8)
 
-	return RenderFunction.apply(
+	img, alpha = RenderFunction.apply(
 		settings,
 		means, scales, rotations, opacities, harmonics
+	)
+
+	return RenderResult(
+		color=img   if settings.outputs & RenderOutputs.COLOR else None,
+		alpha=alpha if settings.outputs & RenderOutputs.ALPHA else None,
 	)
 
 class Renderer(nn.Module):

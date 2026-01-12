@@ -82,7 +82,7 @@ void ddgs_backward_cuda(DDGSsettings settings, const float* dLdImage, DDGSgaussi
 	DDGS_PROFILE_REGION_START(rasterize);
 
 	_ddgs_backward_splat_kernel<<<{ tilesWidth, tilesHeight }, { DDGS_TILE_SIZE, DDGS_TILE_SIZE }>>>(
-		settings, dLdImage, imageBufs.accumAlpha, imageBufs.numContributors,
+		settings, dLdImage, imageBufs.transmittance, imageBufs.numContributors,
 		imageBufs.tileRanges, binningBufs.indicesSorted, geomBufs,
 		intermediateDerivs, outDLdGaussians.opacities
 	);

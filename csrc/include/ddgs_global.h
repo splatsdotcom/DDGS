@@ -23,7 +23,7 @@
 
 #define DDGS_MAX_ALPHA 0.99f
 #define DDGS_MIN_ALPHA (1.0f / 255.0f)
-#define DDGS_ACCUM_ALPHA_CUTOFF 0.00001f
+#define DDGS_TRANSMITTANCE_CUTOFF 0.00001f
 
 //-------------------------------------------//
 

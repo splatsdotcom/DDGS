@@ -25,7 +25,7 @@ public:
 
 //-------------------------------------------//
 
-std::tuple<at::Tensor, int64_t, at::Tensor, at::Tensor, at::Tensor>
+std::tuple<at::Tensor, at::Tensor, int64_t, at::Tensor, at::Tensor, at::Tensor>
 ddgs_forward(const c10::intrusive_ptr<DDGSsettingsTorch>& settings,
              const at::Tensor& means, const at::Tensor& scales, const at::Tensor& rotations, const at::Tensor& opacities, const at::Tensor& harmonics);
 

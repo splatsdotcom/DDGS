@@ -48,8 +48,8 @@ DDGSimageBuffers::DDGSimageBuffers(uint8_t* mem, uint32_t count) :
 	DDGSrenderBuffers(mem, count)
 {
 	//TODO: this is wasteful! only need 1 per tile, can also get away with just a uint32_t
-	tileRanges = bump<uint2>();
-	accumAlpha = bump<float>();
+	tileRanges      = bump<uint2>();
+	transmittance   = bump<float>();
 	numContributors = bump<uint32_t>();
 }
 
