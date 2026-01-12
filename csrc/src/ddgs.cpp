@@ -38,7 +38,7 @@ uint32_t _ddgs_validate_gaussians(const at::Tensor& means, const at::Tensor& sca
 
 //-------------------------------------------//
 
-std::tuple<at::Tensor, at::Tensor, int64_t, at::Tensor, at::Tensor, at::Tensor>
+std::tuple<at::Tensor, at::Tensor, at::Tensor, int64_t, at::Tensor, at::Tensor, at::Tensor>
 ddgs_forward(const c10::intrusive_ptr<DDGSsettingsTorch>& settings,
              const at::Tensor& means, const at::Tensor& scales, const at::Tensor& rotations, const at::Tensor& opacities, const at::Tensor& harmonics)
 {
@@ -56,6 +56,7 @@ ddgs_forward(const c10::intrusive_ptr<DDGSsettingsTorch>& settings,
 
 	at::Tensor outImage = torch::full({ cSettings.height, cSettings.width, 3 }, 0.0f, floatOpts.device(device)).contiguous();
 	at::Tensor outAlpha = torch::full({ cSettings.height, cSettings.width, 1 }, 0.0f, floatOpts.device(device)).contiguous();
+	at::Tensor outDepth = torch::full({ cSettings.height, cSettings.width, 1 }, 0.0f, floatOpts.device(device)).contiguous();
 
 	at::Tensor geomBuf    = torch::empty({0}, byteOpts.device(device));
 	at::Tensor binningBuf = torch::empty({0}, byteOpts.device(device));
@@ -81,13 +82,14 @@ ddgs_forward(const c10::intrusive_ptr<DDGSsettingsTorch>& settings,
 		_ddgs_tensor_resize_function(imageBuf),
 		
 		outImage.contiguous().data_ptr<float>(),
-		outAlpha.contiguous().data_ptr<float>()
+		outAlpha.contiguous().data_ptr<float>(),
+		outDepth.contiguous().data_ptr<float>()
 	);
 
 	//return:
 	//---------------
 	return { 
-		outImage, outAlpha,
+		outImage, outAlpha, outDepth,
 		numRendered, geomBuf, binningBuf, imageBuf 
 	};
 }

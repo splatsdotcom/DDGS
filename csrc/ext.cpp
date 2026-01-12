@@ -27,7 +27,7 @@ TORCH_LIBRARY(ddgs, m)
 		.def(torch::init<int64_t, int64_t, const at::Tensor&, const at::Tensor&, double, double, bool>());
 
 	m.def(
-		"forward(__torch__.torch.classes.ddgs.Settings settings, Tensor means, Tensor scales, Tensor rotations, Tensor opacities, Tensor harmonics) -> (Tensor, Tensor, int, Tensor, Tensor, Tensor)",
+		"forward(__torch__.torch.classes.ddgs.Settings settings, Tensor means, Tensor scales, Tensor rotations, Tensor opacities, Tensor harmonics) -> (Tensor, Tensor, Tensor, int, Tensor, Tensor, Tensor)",
 		&ddgs_forward
 	);
 	m.def(

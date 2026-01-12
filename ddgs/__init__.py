@@ -42,6 +42,7 @@ def _perspective(fovY, aspect, zNear, zFar):
 class RenderOutputs:
 	COLOR = 1 << 0
 	ALPHA = 1 << 1
+	DEPTH = 1 << 2
 
 class Settings:	
 	def __init__(self, width: int, height: int, 
@@ -102,7 +103,7 @@ class RenderFunction(torch.autograd.Function):
 	def forward(ctx, settings: Settings,
 				means: torch.Tensor, scales: torch.Tensor, rotations: torch.Tensor, opacities: torch.Tensor, harmonics: torch.Tensor) -> torch.Tensor:
 		
-		img, alpha, numRendered, geomBufs, binningBufs, imageBufs = torch.ops.ddgs.forward(
+		img, alpha, depth, numRendered, geomBufs, binningBufs, imageBufs = torch.ops.ddgs.forward(
 			settings.cSettings, means, scales, rotations, opacities, harmonics
 		)
 
@@ -115,10 +116,10 @@ class RenderFunction(torch.autograd.Function):
 
 		ctx.mark_non_differentiable(alpha)
 
-		return img, alpha
+		return img, alpha, depth
 
 	@staticmethod
-	def backward(ctx, grad_color, grad_alpha):
+	def backward(ctx, grad_color, grad_alpha, grad_depth):
 		means, scales, rotations, opacities, harmonics, geomBufs, binningBufs, imageBufs = ctx.saved_tensors
 
 		dMean, dScales, dRotations, dOpacities, dHarmonics = torch.ops.ddgs.backward(
@@ -141,6 +142,7 @@ class RenderFunction(torch.autograd.Function):
 class RenderResult(NamedTuple):
 	color: torch.Tensor | None
 	alpha: torch.Tensor | None
+	depth: torch.Tensor | None
 
 def render(settings: Settings,
 		   means: torch.Tensor, scales: torch.Tensor, rotations: torch.Tensor, opacities: torch.Tensor, harmonics: torch.Tensor,
@@ -149,7 +151,7 @@ def render(settings: Settings,
 	if normalizeRotations:
 		rotations = rotations / torch.norm(rotations, dim=-1, keepdim=True).clamp(min=1e-8)
 
-	img, alpha = RenderFunction.apply(
+	img, alpha, depth = RenderFunction.apply(
 		settings,
 		means, scales, rotations, opacities, harmonics
 	)
@@ -157,6 +159,7 @@ def render(settings: Settings,
 	return RenderResult(
 		color=img   if settings.outputs & RenderOutputs.COLOR else None,
 		alpha=alpha if settings.outputs & RenderOutputs.ALPHA else None,
+		depth=depth if settings.outputs & RenderOutputs.DEPTH else None,
 	)
 
 class Renderer(nn.Module):

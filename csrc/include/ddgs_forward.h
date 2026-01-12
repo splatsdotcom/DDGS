@@ -17,6 +17,6 @@ typedef std::function<uint8_t* (uint64_t size)> DDGSresizeFunc;
 
 uint32_t ddgs_forward_cuda(DDGSsettings settings, DDGSgaussians gaussians,
                            DDGSresizeFunc createGeomBuf, DDGSresizeFunc createBinningBuf, DDGSresizeFunc createImageBuf,
-                           float* outImg, float* outAlpha);
+                           float* outImg, float* outAlpha, float* outDepth);
 
 #endif //#ifndef DDGS_FOWARD_H
