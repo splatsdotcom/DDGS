@@ -21,6 +21,7 @@ namespace cg = cooperative_groups;
 #define DDGS_PREPROCESS_WORKGROUP_SIZE       64
 #define DDGS_KEY_WRITE_WORKGROUP_SIZE        64
 #define DDGS_FIND_TILE_RANGES_WORKGROUP_SIZE 64
+#define DDGS_DEPTH_TRANSMITTANCE_CUTOFF 0.95f
 
 //-------------------------------------------//
 
@@ -473,7 +474,7 @@ _ddgs_forward_splat_kernel(DDGSsettings settings,
 			
 			float newAccumTramsittance = accumTransmittance * (1.0f - alpha);
 
-			if(accumTransmittance >= 0.5f && newAccumTramsittance < 0.5f)
+			if(accumTransmittance >= DDGS_DEPTH_TRANSMITTANCE_CUTOFF && newAccumTramsittance < DDGS_DEPTH_TRANSMITTANCE_CUTOFF)
 				depthHit = collectedDepth[j];
 
 			if(newAccumTramsittance < DDGS_TRANSMITTANCE_CUTOFF)
